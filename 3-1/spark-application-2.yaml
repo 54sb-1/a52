@@ -1,0 +1,36 @@
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: pyspark-douban-analysis
+  namespace: default
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  # ⚠️ 此处替换为教师提供的 SWR PySpark 镜像地址
+  image: swr.cn-north-4.myhuaweicloud.com/<TEACHER_ORG>/pyspark:3.4
+  imagePullPolicy: Always
+  
+  # 指向我们写好的 Python 代码
+  # 提示：若教师的镜像并未包含你的代码，可以通过 configmap 挂载，或者直接将 analysis.py 上传至你自己的 OBS 桶中，写成 s3a://<你的桶>/analysis.py
+  mainApplicationFile: s3a://<YOUR_BUCKET>/analysis.py
+  
+  sparkVersion: "3.4.0"
+  restartPolicy:
+    type: Never
+  
+  # 华为云 CCE 访问 OBS 的关键配置
+  hadoopConf:
+    "fs.s3a.endpoint": "obs.cn-north-4.myhuaweicloud.com"  # 替换为实际 OBS 区域
+    "fs.s3a.access.key": "<你的_AK>"
+    "fs.s3a.secret.key": "<你的_SK>"
+    "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+  
+  driver:
+    cores: 1
+    memory: "1g"
+    serviceAccount: spark
+  executor:
+    cores: 1
+    instances: 2        # 用于 A-3 性能对比时，将其改为 1 再次运行
+    memory: "1g"

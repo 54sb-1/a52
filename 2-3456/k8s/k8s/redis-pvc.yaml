@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: csi-disk # 本地验证用 standard，交付队友时改回 csi-disk
+  resources:
+    requests:
+      storage: 10Gi

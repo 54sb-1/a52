@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">  <title>云平台 Web 应用测试</title>
+</head>
+<body>
+    <h1>后端 API 测试页面</h1>
+    <p>验收标识：学号 2023112550 - 姓名 万嘉乐</p>
+    <p>验收标识：学号 2023112582 - 姓名 王飞杨</p>
+    <button onclick="pingApi()">测试与后端通信</button>
+    <div id="result"></div>
+
+    <script>
+        function pingApi() {
+            fetch('/api/ping')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('result').innerText = JSON.stringify(data);
+                });
+        }
+    </script>
+</body>
+</html>

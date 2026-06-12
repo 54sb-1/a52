@@ -1,0 +1,29 @@
+# sparkapplication.yaml 完整内容
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: spark-wordcount             # 作业名称
+  namespace: default
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  # 1. 关键修改：替换为教师提供的 SWR 内部私有 PySpark 镜像地址 
+  image: swr.cn-north-4.myhuaweicloud.com/<教师指定组织>/pyspark:3.4
+  imagePullPolicy: IfNotPresent
+  
+  # 验证作业使用的是附录 B-1 的入门示例代码 [cite: 136, 425-437]
+  mainApplicationFile: local:///opt/spark/examples/src/main/python/wordcount.py
+  sparkVersion: "3.4.0"
+  restartPolicy:
+    type: Never
+    
+  # 2. 关键修改：严格按照任务书要求配置实例数量与内存 
+  driver:
+    cores: 1
+    memory: "1g"
+    serviceAccount: spark           # 赋予 Driver 创建 Executor 的 RBAC 权限
+  executor:
+    cores: 1
+    [cite_start]instances: 2                    # executorInstances=2 
+    [cite_start]memory: "1g"                    # executorMemory="1g"

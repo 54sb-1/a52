@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      # 强制将本地挂载目录的所有权赋予 Redis 容器内部用户 (UID 999)
+      securityContext:
+        fsGroup: 999
+      containers:
+      - name: redis
+        image: redis:7-alpine
+      # 1. 告诉 Redis 去哪里拿密码
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: password
+        # 2. 修改启动命令，强制要求密码验证
+        command: ["/bin/sh", "-c"]
+        args: ["redis-server --appendonly yes --dir /data --requirepass $$REDIS_PASSWORD"]
+        resources:
+          limits:
+            memory: "512Mi"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-data-pvc
