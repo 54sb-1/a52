@@ -1,0 +1,119 @@
+import os
+import time
+import urllib.request
+import pandas as pd
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, when, isnan, avg
+
+# ==========================================
+# 0. 自动获取数据环节 (绕过 K8s 挂载难题)
+# ==========================================
+# 请将你的 douban_movies.csv 上传到 Gitee 等平台，获取 Raw 直链填在这里
+CSV_URL = "https://你的直链地址/douban_movies.csv" 
+csv_path = "/tmp/douban_movies.csv"
+
+print(f"[*] 正在从 {CSV_URL} 下载数据文件...")
+try:
+    urllib.request.urlretrieve(CSV_URL, csv_path)
+    print("[*] 数据下载完成！")
+except Exception as e:
+    print(f"[!] 下载失败，请检查链接: {e}")
+
+# ==========================================
+# 1. 初始化与 A-1 数据清洗 (10分)
+# ==========================================
+spark = SparkSession.builder.appName("DoubanMoviesAnalysis").getOrCreate()
+
+print("\n=== A-1: 数据加载与清洗 ===")
+df = spark.read.csv(f"file://{csv_path}", header=True, inferSchema=True)
+df.printSchema()
+
+# 统计缺失值
+total_rows = df.count()
+missing_stats = df.select([
+    (count(when(isnan(c) | col(c).isNull(), c)) / total_rows).alias(c) 
+    for c in df.columns
+])
+missing_stats.show()
+
+# 清洗策略: dropna (剔除核心信息缺失) + fillna (填充数值均值)
+df_clean_1 = df.dropna(subset=["title", "year"])
+mean_rating = df_clean_1.select(avg(col("rating_score"))).collect()[0][0]
+df_clean = df_clean_1.fillna({
+    "rating_score": mean_rating,
+    "genres": "未知",
+    "countries": "未知"
+})
+
+print(f"清洗前行数: {total_rows} | 清洗后行数: {df_clean.count()}")
+df_clean.describe(["rating_score", "rating_count", "year"]).show()
+
+# ==========================================
+# 2. A-2 Spark SQL 统计分析 (15分)
+# ==========================================
+df_clean.createOrReplaceTempView("movies")
+print("\n=== A-2: Spark SQL 深度分析 ===")
+
+# 查询1: GROUP BY 聚合 (历年高产类型 Top 10)
+print("-> 查询1: 各类型电影平均分排行 Top 10")
+spark.sql("""
+    SELECT genre, COUNT(1) as movie_count, AVG(rating_score) as avg_rating
+    FROM movies LATERAL VIEW explode(split(genres, '/')) as genre
+    GROUP BY genre
+    HAVING movie_count > 50
+    ORDER BY avg_rating DESC
+    LIMIT 10
+""").show()
+
+# 查询2: 时间维度趋势 (2000年以来产量与评分趋势)
+print("-> 查询2: 2000-2024 年电影产量与评分趋势")
+spark.sql("""
+    SELECT year, COUNT(1) as yearly_output, AVG(rating_score) as yearly_avg_rating
+    FROM movies
+    WHERE year >= 2000 AND year <= 2024
+    GROUP BY year
+    ORDER BY year ASC
+""").show(25)
+
+# 查询3: 窗口函数 (各国家地区口碑 Top 3)
+print("-> 查询3: 各国家/地区评分排名前 3 的经典电影 (评价人数>10万)")
+spark.sql("""
+    SELECT title, countries, rating_score, rank
+    FROM (
+        SELECT title, countries, rating_score,
+               ROW_NUMBER() OVER (PARTITION BY countries ORDER BY rating_score DESC) as rank
+        FROM movies
+        WHERE rating_count > 100000 
+    ) ranked_movies
+    WHERE rank <= 3
+""").show(15)
+
+# 查询4: JOIN 操作 (找出评分高于当年均分的标杆之作)
+print("-> 查询4: 评分高于同年代平均水准的电影")
+spark.sql("""
+    SELECT a.title, a.year, a.rating_score, b.yearly_avg
+    FROM movies a
+    JOIN (
+        SELECT year, AVG(rating_score) as yearly_avg
+        FROM movies
+        GROUP BY year
+    ) b ON a.year = b.year
+    WHERE a.rating_score > b.yearly_avg
+    ORDER BY a.year DESC, a.rating_score DESC
+    LIMIT 10
+""").show()
+
+# ==========================================
+# 3. A-3 性能对比 (Pandas 执行耗时) (5分)
+# ==========================================
+print("\n=== A-3: Pandas 单机性能测试 ===")
+start_time = time.time()
+pdf = pd.read_csv(csv_path)
+pdf_clean = pdf.dropna(subset=['year', 'rating_score'])
+pdf_clean['year'] = pd.to_numeric(pdf_clean['year'], errors='coerce')
+pdf_filtered = pdf_clean[(pdf_clean['year'] >= 2000) & (pdf_clean['year'] <= 2024)]
+result = pdf_filtered.groupby('year').agg({'movie_id': 'count', 'rating_score': 'mean'})
+pandas_time = time.time() - start_time
+print(f"[*] Pandas 执行查询2耗时: {pandas_time:.4f} 秒")
+
+spark.stop()
